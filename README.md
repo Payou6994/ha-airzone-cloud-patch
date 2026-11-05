@@ -6,42 +6,44 @@
 [![Validate][validate-badge]][validate-url]
 
 Correctif pour l'intégration officielle **[Airzone Cloud][airzone-integration]** de
-Home Assistant quand le cloud Airzone répond **`402 Payment Required`** à chaque
-commande (changement de consigne, marche/arrêt, mode) sur les comptes **sans
-abonnement**.
+Home Assistant quand le cloud Airzone répond **`402 Payment Required`** sur les
+comptes **sans abonnement** — d'abord à chaque **commande** (consigne, marche/arrêt,
+mode), puis aussi à la **lecture** de la config des appareils, ce qui fait carrément
+**échouer le démarrage** de l'intégration (plus aucune entité : clim, température,
+**batterie** des thermostats…).
 
-> **La lecture des états fonctionne toujours** nativement — c'est seulement
-> l'**écriture** (le contrôle) qui est cassée. Ce composant ne corrige que ça.
+> Airzone mure, sur l'hôte `m.airzonecloud.com`, les endpoints **appareils**
+> (écriture **et** lecture). L'app officielle, elle, passe par l'hôte **non muré**
+> `prodctrl.airzonecloud.com` ; ce composant y redirige les requêtes appareils.
 
 ---
 
 ## Le problème
 
-Airzone a déplacé l'endpoint de contrôle derrière un abonnement payant. La
-librairie `aioairzone-cloud` utilisée par l'intégration officielle envoie encore
-les commandes sur l'ancienne adresse :
+Airzone paywalle progressivement les endpoints **appareils** sur
+`m.airzonecloud.com`, que la librairie `aioairzone-cloud` (intégration officielle)
+utilise encore. Même compte, même token — seul **l'hôte** change :
 
-```
-PATCH https://m.airzonecloud.com/api/v1/devices/{id}   →  402 Payment Required
-```
+| Requête appareil | `m.airzonecloud.com` | `prodctrl.airzonecloud.com` (app) |
+|---|---|---|
+| Écriture `PATCH /devices/{id}` | **402** | **200 / 204** (en v2) |
+| Lecture `GET /devices/{id}/config` | **402** | **200** |
 
-L'application mobile officielle, elle, pilote via un nouvel endpoint **non muré** :
-
-```
-PATCH https://prodctrl.airzonecloud.com/api/v2/devices/{id}   →  204 No Content
-```
+La lecture `config` échoue **au démarrage** de l'intégration → le setup s'interrompt
+et **toutes** les entités tombent (clim, température, batterie…).
 
 ## La solution
 
-Ce composant remplace à chaud la **seule** méthode d'écriture de la librairie
-(`AirzoneCloudApi.api_patch_device`) pour :
+Ce composant remplace à chaud **deux** méthodes de `AirzoneCloudApi` :
 
-1. rediriger la commande vers l'endpoint **v2 `prodctrl`** ;
-2. traduire le corps `{"param", "value", "installation_id"}` → `{"params": {…}, "installationId", "opts"}` ;
-3. choisir `setpoint_air_heat` / `setpoint_air_cool` selon le mode courant.
+- **`api_patch_device`** (écriture) → endpoint **v2 `prodctrl`**, avec traduction du
+  corps (`{"param","value","installation_id"}` → `{"params":{…},"installationId","opts"}`)
+  et choix `setpoint_air_heat` / `setpoint_air_cool` selon le mode ;
+- **`api_request`** (lecture) → les requêtes **appareils** (`.../devices/{id}…`) sont
+  renvoyées vers **`prodctrl`** au lieu de `m.`.
 
-Tout le reste (authentification, WebSocket, états, entités `climate`) reste
-**natif et inchangé**.
+Tout le reste (authentification, installations, météo, WebSocket) reste **sur `m.`
+et inchangé**.
 
 ## Prérequis
 
@@ -51,8 +53,9 @@ Tout le reste (authentification, WebSocket, états, entités `climate`) reste
 
 > ⚠️ **Ne supprime pas l'intégration officielle `airzone_cloud`.** Ce composant
 > ne la remplace pas, il la **complète** : il a besoin qu'elle reste installée et
-> active (elle fournit l'authentification, le WebSocket, les entités et toute la
-> lecture). Ce patch ne corrige **que l'écriture**.
+> active (elle fournit l'authentification, le WebSocket et les entités). Ce patch
+> se contente de **rediriger les requêtes appareils** (écriture et lecture) vers
+> l'hôte non muré.
 
 ## Installation
 
@@ -85,11 +88,11 @@ Il n'y a aucun champ à remplir : valide, c'est tout.
 Après ajout, le journal affiche :
 
 ```
-aioairzone-cloud : controle redirige vers l'endpoint v2 (https://prodctrl.airzonecloud.com/api/v2)
+aioairzone-cloud : controle + lecture device rediriges vers https://prodctrl.airzonecloud.com
 ```
 
-Change une consigne depuis une carte `climate` : la commande passe maintenant
-(plus de 402).
+L'intégration `airzone_cloud` doit alors démarrer normalement (plus de 402 au
+setup), et changer une consigne depuis une carte `climate` doit fonctionner.
 
 ## Comment ça marche
 
@@ -102,6 +105,10 @@ Change une consigne depuis une carte `climate` : la commande passe maintenant
 
 Dans tous les cas : `installationId` en camelCase et l'URL
 `prodctrl.airzonecloud.com/api/v2/devices/{id}`.
+
+Pour la **lecture**, les requêtes device-scoped (`.../devices/{id}/config`, etc.)
+sont simplement renvoyées de `m.` vers `prodctrl` (même chemin), ce qui débloque le
+démarrage de l'intégration et fait revenir les entités (dont la batterie).
 
 ## Limites / avertissement
 

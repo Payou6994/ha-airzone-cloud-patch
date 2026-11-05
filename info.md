@@ -9,10 +9,7 @@ redirigé de l'ancien endpoint muré `m.airzonecloud.com/api/v1/devices` vers le
 nouvel endpoint `prodctrl.airzonecloud.com/api/v2/devices` utilisé par l'app
 officielle.
 
-Après installation, ajoute dans `configuration.yaml` :
-
-```yaml
-airzone_cloud_patch:
-```
-
-puis redémarre Home Assistant.
+Après installation, **redémarre Home Assistant**, puis ajoute l'intégration via
+**Paramètres → Appareils et services → Ajouter une intégration → « Airzone Cloud
+v2 control patch »**. Aucune configuration à saisir, aucune ligne dans
+`configuration.yaml`.

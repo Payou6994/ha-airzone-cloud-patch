@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Airzone Cloud v2 control patch",
+        "description": "Enables redirecting Airzone control to the v2 endpoint (works around the 402 error on write). No configuration needed: click Submit."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured: only one instance is needed."
+    }
+  }
+}

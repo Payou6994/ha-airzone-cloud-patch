@@ -1,0 +1,12 @@
+{
+  "domain": "airzone_cloud_patch",
+  "name": "Airzone Cloud v2 control patch",
+  "version": "0.1.0",
+  "documentation": "https://github.com/Payou6994/ha-airzone-cloud-patch",
+  "issue_tracker": "https://github.com/Payou6994/ha-airzone-cloud-patch/issues",
+  "after_dependencies": ["airzone_cloud"],
+  "codeowners": ["@Payou6994"],
+  "iot_class": "cloud_push",
+  "integration_type": "system",
+  "requirements": []
+}

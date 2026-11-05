@@ -49,6 +49,11 @@ Tout le reste (authentification, WebSocket, états, entités `climate`) reste
   configurée (elle fournit les entités ; la lecture doit déjà fonctionner).
 - Un compte Airzone **sans** abonnement (c'est le cas où l'écriture renvoie 402).
 
+> ⚠️ **Ne supprime pas l'intégration officielle `airzone_cloud`.** Ce composant
+> ne la remplace pas, il la **complète** : il a besoin qu'elle reste installée et
+> active (elle fournit l'authentification, le WebSocket, les entités et toute la
+> lecture). Ce patch ne corrige **que l'écriture**.
+
 ## Installation
 
 ### Via HACS (recommandé)

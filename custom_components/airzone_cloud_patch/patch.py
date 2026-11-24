@@ -14,12 +14,15 @@ L'app officielle, elle, passe par l'hote NON mure `prodctrl.airzonecloud.com`
 
 Ce module remplace a chaud deux methodes de `AirzoneCloudApi` :
   - `api_patch_device` : controle -> endpoint v2 prodctrl (traduction du corps).
-  - `api_request`      : les requetes device-scoped (`.../devices/{id}...`) sont
-                         renvoyees vers prodctrl au lieu de m. ; le reste (install.,
-                         app-manager, meteo, WebSocket) reste inchange.
+  - `api_request`      : pour les requetes device-scoped (`.../devices/{id}...`),
+                         on tente m. D'ABORD et on ne bascule sur prodctrl QUE si
+                         m. renvoie 402. Le paywall est specifique au compte :
+                         certains comptes lisent encore la config sur m. (200), et
+                         prodctrl rejette alors la meme requete en 422. Le reste
+                         (install., app-manager, meteo, WebSocket) reste inchange.
 
-Sans le redirect de lecture, le setup de l'integration echoue (402 sur la config)
-et TOUTES les entites tombent (y compris l'indicateur de batterie des thermostats).
+Sans ce fallback, le setup echoue : soit 402 sur m. (comptes mures), soit 422 sur
+prodctrl (comptes non mures) -> toutes les entites tombent, batterie comprise.
 """
 from __future__ import annotations
 
@@ -28,7 +31,7 @@ import logging
 import re
 import urllib.parse
 
-from .const import PRODCTRL, SP_COOL, SP_HEAT, V2_BASE
+from .const import M_BASE, PRODCTRL, SP_COOL, SP_HEAT, V2_BASE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -110,31 +113,56 @@ def apply_patch() -> bool:
             return {}
 
     async def api_request_prodctrl(self, method, path, json=None):  # noqa: ANN001
-        """Lecture : requetes device-scoped renvoyees vers prodctrl (non mure)."""
-        if _DEVICE_RE.search(path):
-            url = f"{PRODCTRL}/{path}"
-            _LOGGER.debug("lecture device redirigee vers prodctrl: %s %s", method, url)
-            async with self._api_semaphore:
-                async with self.session.request(
-                    method,
-                    url,
-                    headers=self.token.headers(),
-                    json=json,
-                    raise_for_status=True,
-                    timeout=self._api_timeout,
-                ) as resp:
+        """Lecture device : m. d'abord, bascule prodctrl UNIQUEMENT si m. renvoie 402.
+
+        Le paywall est specifique au compte : certains comptes lisent encore la
+        config sur m. (200), et prodctrl rejette alors la meme requete en 422.
+        On ne redirige donc que si m. refuse effectivement (402). Le reste
+        (installations, app-manager, meteo, WebSocket) passe par l'original.
+        """
+        if not _DEVICE_RE.search(path):
+            return await _ORIG_API_REQUEST(self, method, path, json)
+
+        # 1) tentative sur l'hote d'origine (m.), sans lever sur 402
+        async with self._api_semaphore:
+            async with self.session.request(
+                method,
+                f"{M_BASE}/{path}",
+                headers=self.token.headers(),
+                json=json,
+                timeout=self._api_timeout,
+            ) as resp:
+                if resp.status != 402:
+                    resp.raise_for_status()
                     try:
                         return await resp.json(content_type=None)
                     except Exception:  # noqa: BLE001 - corps vide (ex. 304)
                         return {}
-        # tout le reste : comportement d'origine (hote m.)
-        return await _ORIG_API_REQUEST(self, method, path, json)
+
+        # 2) m. est mure (402) pour ce compte -> bascule sur prodctrl
+        url = f"{PRODCTRL}/{path}"
+        _LOGGER.debug("m. mure (402) sur %s -> lecture via prodctrl", path)
+        async with self._api_semaphore:
+            async with self.session.request(
+                method,
+                url,
+                headers=self.token.headers(),
+                json=json,
+                raise_for_status=True,
+                timeout=self._api_timeout,
+            ) as resp:
+                try:
+                    return await resp.json(content_type=None)
+                except Exception:  # noqa: BLE001 - corps vide (ex. 304)
+                    return {}
 
     AirzoneCloudApi.api_patch_device = api_patch_device_prodctrl
     AirzoneCloudApi.api_request = api_request_prodctrl
     AirzoneCloudApi._prodctrl_patched = True
     _LOGGER.info(
-        "aioairzone-cloud : controle + lecture device rediriges vers %s", PRODCTRL
+        "aioairzone-cloud : controle -> %s ; lecture device avec fallback %s sur 402",
+        PRODCTRL,
+        PRODCTRL,
     )
     return True
 

@@ -1,19 +1,18 @@
 # Airzone Cloud v2 control patch
 
-Répare l'intégration officielle `airzone_cloud` quand le cloud Airzone renvoie
-**402 Payment Required** sur les comptes sans abonnement — à l'écriture (consigne,
-marche/arrêt, mode) **et** à la lecture de la config des appareils, ce qui fait
-échouer le démarrage de l'intégration (clim, température, batterie… qui tombent).
+Fixes Home Assistant's official `airzone_cloud` integration when the Airzone cloud
+returns **402 Payment Required** on accounts without a subscription — on writes
+(setpoint, on/off, mode) **and** on reading device config, which makes the integration
+fail to start (climate, temperature, battery… all drop).
 
-Les requêtes **appareils** (écriture et lecture) sont redirigées de l'hôte muré
-`m.airzonecloud.com` vers l'hôte non muré `prodctrl.airzonecloud.com` utilisé par
-l'app officielle. Le reste (authentification, WebSocket, installations) reste
-inchangé.
+**Device** requests (writes and reads) are redirected from the gated host
+`m.airzonecloud.com` to the non-gated host `prodctrl.airzonecloud.com` used by the
+official app. Reads try `m.` first and only fall back to `prodctrl` on a 402. Everything
+else (authentication, WebSocket, installations) is unchanged.
 
-**Ne supprime pas l'intégration officielle `airzone_cloud`** : ce composant la
-complète (il redirige seulement les requêtes appareils), il ne la remplace pas.
+**Do not remove the official `airzone_cloud` integration** — this component complements
+it (it only redirects device requests), it does not replace it.
 
-Après installation, **redémarre Home Assistant**, puis ajoute l'intégration via
-**Paramètres → Appareils et services → Ajouter une intégration → « Airzone Cloud
-v2 control patch »**. Aucune configuration à saisir, aucune ligne dans
-`configuration.yaml`.
+After installing, **restart Home Assistant**, then add the integration via
+**Settings → Devices & services → Add integration → "Airzone Cloud v2 control patch"**.
+Nothing to configure, no `configuration.yaml`.

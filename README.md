@@ -5,131 +5,129 @@
 [![License][license-badge]](LICENSE)
 [![Validate][validate-badge]][validate-url]
 
-Correctif pour l'intégration officielle **[Airzone Cloud][airzone-integration]** de
-Home Assistant quand le cloud Airzone répond **`402 Payment Required`** sur les
-comptes **sans abonnement** — d'abord à chaque **commande** (consigne, marche/arrêt,
-mode), puis aussi à la **lecture** de la config des appareils, ce qui fait carrément
-**échouer le démarrage** de l'intégration (plus aucune entité : clim, température,
-**batterie** des thermostats…).
+A fix for Home Assistant's official **[Airzone Cloud][airzone-integration]** integration
+when the Airzone cloud returns **`402 Payment Required`** on **accounts without a
+subscription** — first on every **command** (setpoint, on/off, mode), and then also on
+**reading** device config, which makes the integration **fail to start** altogether (no
+entities at all: climate, temperature, thermostat **battery**…).
 
-> Airzone mure, sur l'hôte `m.airzonecloud.com`, les endpoints **appareils**
-> (écriture **et** lecture). L'app officielle, elle, passe par l'hôte **non muré**
-> `prodctrl.airzonecloud.com` ; ce composant y redirige les requêtes appareils.
+> Airzone is gating the **device** endpoints on the `m.airzonecloud.com` host (both
+> **writes and reads**). The official app instead goes through the **non-gated** host
+> `prodctrl.airzonecloud.com`; this component redirects device requests there.
 
 ---
 
-## Le problème
+## The problem
 
-Airzone paywalle progressivement les endpoints **appareils** sur
-`m.airzonecloud.com`, que la librairie `aioairzone-cloud` (intégration officielle)
-utilise encore. Même compte, même token — seul **l'hôte** change :
+Airzone is progressively paywalling the **device** endpoints on `m.airzonecloud.com`,
+which the `aioairzone-cloud` library (official integration) still uses. Same account,
+same token — only the **host** changes:
 
-| Requête appareil | `m.airzonecloud.com` | `prodctrl.airzonecloud.com` (app) |
+| Device request | `m.airzonecloud.com` | `prodctrl.airzonecloud.com` (app) |
 |---|---|---|
-| Écriture `PATCH /devices/{id}` | **402** | **200 / 204** (en v2) |
-| Lecture `GET /devices/{id}/config` | **402** | **200** |
+| Write `PATCH /devices/{id}` | **402** | **200 / 204** (v2) |
+| Read `GET /devices/{id}/config` | **402** | **200** |
 
-La lecture `config` échoue **au démarrage** de l'intégration → le setup s'interrompt
-et **toutes** les entités tombent (clim, température, batterie…).
+When the config read fails **at startup**, setup aborts and **all** entities drop
+(climate, temperature, battery…).
 
-## La solution
+> **Note — the gating is account-specific.** On some free accounts the config read still
+> works on `m.` (200), and `prodctrl` then *rejects* that same request with **422**. The
+> patch handles both cases (see below).
 
-Ce composant remplace à chaud **deux** méthodes de `AirzoneCloudApi` :
+## The solution
 
-- **`api_patch_device`** (écriture) → endpoint **v2 `prodctrl`**, avec traduction du
-  corps (`{"param","value","installation_id"}` → `{"params":{…},"installationId","opts"}`)
-  et choix `setpoint_air_heat` / `setpoint_air_cool` selon le mode ;
-- **`api_request`** (lecture) → les requêtes **appareils** (`.../devices/{id}…`) sont
-  renvoyées vers **`prodctrl`** au lieu de `m.`.
+This component hot-patches **two** methods of `AirzoneCloudApi`:
 
-Tout le reste (authentification, installations, météo, WebSocket) reste **sur `m.`
-et inchangé**.
+- **`api_patch_device`** (write) → **v2 `prodctrl`** endpoint, translating the body
+  (`{"param","value","installation_id"}` → `{"params":{…},"installationId","opts"}`)
+  and picking `setpoint_air_heat` / `setpoint_air_cool` based on the current mode;
+- **`api_request`** (read) → for **device** requests (`.../devices/{id}…`) it tries
+  `m.` **first** and only falls back to **`prodctrl`** **if `m.` returns 402**. Accounts
+  gated on `m.` fall back to `prodctrl`; accounts still served on `m.` stay there (no 422).
 
-## Prérequis
+Everything else (authentication, installations, weather, WebSocket) stays **on `m.`
+and unchanged**.
 
-- L'intégration **[Airzone Cloud][airzone-integration]** officielle installée et
-  configurée (elle fournit les entités ; la lecture doit déjà fonctionner).
-- Un compte Airzone **sans** abonnement (c'est le cas où l'écriture renvoie 402).
+## Requirements
 
-> ⚠️ **Ne supprime pas l'intégration officielle `airzone_cloud`.** Ce composant
-> ne la remplace pas, il la **complète** : il a besoin qu'elle reste installée et
-> active (elle fournit l'authentification, le WebSocket et les entités). Ce patch
-> se contente de **rediriger les requêtes appareils** (écriture et lecture) vers
-> l'hôte non muré.
+- The official **[Airzone Cloud][airzone-integration]** integration installed and
+  configured (it provides the entities).
+- An Airzone account **without** a subscription (the case where the cloud returns 402).
+
+> ⚠️ **Do not remove the official `airzone_cloud` integration.** This component does not
+> replace it, it **complements** it: it needs it installed and active (it provides
+> authentication, the WebSocket and the entities). The patch only **redirects device
+> requests** (writes and reads) to the non-gated host.
 
 ## Installation
 
-### Via HACS (recommandé)
+### Via HACS (recommended)
 
-1. Ajoute ce dépôt comme **dépôt personnalisé** dans HACS (catégorie
-   *Integration*), ou clique :
+1. Add this repository as a **custom repository** in HACS (category *Integration*), or
+   click:
 
    [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.][hacs-repo-badge]][hacs-repo-url]
 
-2. Installe **Airzone Cloud v2 control patch**, puis **redémarre** Home Assistant.
+2. Install **Airzone Cloud v2 control patch**, then **restart** Home Assistant.
 
-### Manuelle
+### Manual
 
-Copie `custom_components/airzone_cloud_patch/` dans ton dossier
-`config/custom_components/`, puis redémarre Home Assistant.
+Copy `custom_components/airzone_cloud_patch/` into your `config/custom_components/`
+folder, then restart Home Assistant.
 
 ## Configuration
 
-Pas de `configuration.yaml`. Ajoute l'intégration via l'interface :
+No `configuration.yaml`. Add the integration from the UI:
 
-**Paramètres → Appareils et services → Ajouter une intégration → « Airzone Cloud v2 control patch »**, ou clique :
+**Settings → Devices & services → Add integration → "Airzone Cloud v2 control patch"**,
+or click:
 
 [![Add integration][config-flow-badge]][config-flow-url]
 
-Il n'y a aucun champ à remplir : valide, c'est tout.
+There is nothing to fill in: submit and you're done.
 
-## Vérifier
+## Verify
 
-Après ajout, le journal affiche :
+After adding it, the `airzone_cloud` integration should start normally (no more 402 — or
+422 — at setup), and changing a setpoint from a `climate` card should work. The component
+also logs a line at startup confirming the patch is active.
 
-```
-aioairzone-cloud : controle + lecture device rediriges vers https://prodctrl.airzonecloud.com
-```
+## How it works
 
-L'intégration `airzone_cloud` doit alors démarrer normalement (plus de 402 au
-setup), et changer une consigne depuis une carte `climate` doit fonctionner.
-
-## Comment ça marche
-
-| Action | Librairie (v1, muré) | Envoyé en v2 (ce patch) |
+| Action | Library (v1, gated) | Sent as v2 (this patch) |
 |---|---|---|
-| Consigne chaud | `{"param":"setpoint","value":21}` | `{"params":{"setpoint_air_heat":21},"opts":{"units":0}}` |
-| Consigne froid | `{"param":"setpoint","value":21}` | `{"params":{"setpoint_air_cool":21},"opts":{"units":0}}` |
-| Marche/arrêt | `{"param":"power","value":true}` | `{"params":{"power":true}}` |
+| Heat setpoint | `{"param":"setpoint","value":21}` | `{"params":{"setpoint_air_heat":21},"opts":{"units":0}}` |
+| Cool setpoint | `{"param":"setpoint","value":21}` | `{"params":{"setpoint_air_cool":21},"opts":{"units":0}}` |
+| On/off | `{"param":"power","value":true}` | `{"params":{"power":true}}` |
 | Mode | `{"param":"mode","value":3}` | `{"params":{"mode":3}}` |
 
-Dans tous les cas : `installationId` en camelCase et l'URL
+In every case: `installationId` in camelCase and the URL
 `prodctrl.airzonecloud.com/api/v2/devices/{id}`.
 
-Pour la **lecture**, les requêtes device-scoped (`.../devices/{id}/config`, etc.)
-sont simplement renvoyées de `m.` vers `prodctrl` (même chemin), ce qui débloque le
-démarrage de l'intégration et fait revenir les entités (dont la batterie).
+For **reads**, device-scoped requests (`.../devices/{id}/config`, etc.) are tried on `m.`
+first and only sent to `prodctrl` (same path) when `m.` returns 402 — which unblocks the
+integration's startup and brings the entities back (battery included).
 
-## Limites / avertissement
+## Caveats / disclaimer
 
-- Repose sur l'API cloud **non documentée** d'Airzone ; elle peut changer sans
-  préavis. Objectif : **interopérabilité avec son propre matériel**.
-- Le patch suit la signature interne de `aioairzone-cloud` (testé avec la
-  **v0.7.2**). Une refonte majeure de la librairie pourrait nécessiter une mise
-  à jour.
-- Le correctif idéal à long terme serait en amont, dans `aioairzone-cloud`.
+- Relies on Airzone's **undocumented** cloud API; it may change without notice. Goal:
+  **interoperability with your own hardware**.
+- The patch follows `aioairzone-cloud`'s internals (tested with **v0.7.2**). A major
+  library rework may require an update.
+- The ideal long-term fix would be upstream, in `aioairzone-cloud`.
 
-## Crédits
+## Credits
 
-- Intégration et librairie d'origine : [Noltari/aioairzone-cloud][aioairzone] et
-  l'intégration [Airzone Cloud][airzone-integration] de Home Assistant.
+- Original integration and library: [Noltari/aioairzone-cloud][aioairzone] and Home
+  Assistant's [Airzone Cloud][airzone-integration] integration.
 
-## Licence
+## License
 
-[MIT](LICENSE). Ce dépôt ne redistribue pas le code de `aioairzone-cloud`
-(Apache-2.0) ; il le patche à l'exécution.
+[MIT](LICENSE). This repository does not redistribute `aioairzone-cloud`'s code
+(Apache-2.0); it patches it at runtime.
 
-<!-- Liens -->
+<!-- Links -->
 [airzone-integration]: https://www.home-assistant.io/integrations/airzone_cloud/
 [aioairzone]: https://github.com/Noltari/aioairzone-cloud
 [hacs-url]: https://github.com/hacs/integration

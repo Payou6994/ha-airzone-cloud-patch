@@ -2,6 +2,9 @@
 
 DOMAIN = "airzone_cloud_patch"
 
+# Hote historique (mure selon le compte) utilise par la librairie officielle
+M_BASE = "https://m.airzonecloud.com"
+
 # Hote non mure utilise par l'app officielle (controle ET lecture device)
 PRODCTRL = "https://prodctrl.airzonecloud.com"
 
